@@ -23,12 +23,17 @@ model Lobby {
   status    String
   players   LobbyPlayer[]
   beatmaps  Beatmap[]
+
+  @@index([status])
+  @@index([title(ops: raw("text_pattern_ops"))])
 }
 
 model Player {
   playerId  Int      @id
   username  String
   lobbies   LobbyPlayer[]
+
+  @@index([username(ops: raw("text_pattern_ops"))])
 }
 
 model LobbyPlayer {
@@ -36,7 +41,10 @@ model LobbyPlayer {
   playerId  Int
   lobby     Lobby    @relation(fields: [lobbyId], references: [lobbyId])
   player    Player   @relation(fields: [playerId], references: [playerId])
+
   @@id([lobbyId, playerId])
+  @@index([playerId, lobbyId])
+  @@index([lobbyId, playerId])
 }
 
 model Beatmap {
@@ -47,4 +55,5 @@ model Beatmap {
   lobby         Lobby    @relation(fields: [lobbyId], references: [lobbyId])
 
   @@unique([lobbyId, beatmapId])
+  @@index([beatmapId, lobbyId])
 }

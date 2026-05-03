@@ -9,6 +9,7 @@ COPY . .
 RUN npm ci
 
 RUN npm run prisma:generate
+RUN npm run prisma:migrate:prod
 RUN npm run build:worker
 
 # Runner stage

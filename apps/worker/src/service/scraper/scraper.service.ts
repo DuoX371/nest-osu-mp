@@ -30,14 +30,55 @@ export class ScraperService {
             });
 
             const startId = latest ? latest.lobbyId + 1 : 1;
+            // const startId = 120000000;
             this.logger.log(`New scrape from lobbyId: ${startId}`);
 
             let currentId = startId;
             let consecutiveFail = 0;
             const MAX_CONSECUTIVE_FAILS = 3;
+            const BATCH_SIZE = 10;
 
+            // Temporary
+            // while (consecutiveFail < MAX_CONSECUTIVE_FAILS) {
+            //     const batchIds = Array.from(
+            //         { length: BATCH_SIZE },
+            //         (_, i) => currentId + i
+            //     );
+
+            //     const results = await Promise.all(
+            //         batchIds.map((id) =>
+            //             this.scrapeMatch(id)
+            //                 .then(() => ({ id, success: true }))
+            //                 .catch((e) => {
+            //                     this.logger.error(`Error on lobbyId ${id}: ${e.message}`);
+            //                     return { id, success: false };
+            //                 }),
+            //         ),
+            //     );
+
+            //     // process results in order to track consecutive fails correctly
+            //     let shouldStop = false;
+            //     for (const result of results) {
+            //         if (result.success) {
+            //             consecutiveFail = 0;
+            //         } else {
+            //             consecutiveFail++;
+            //             this.logger.warn(
+            //                 `Failed lobbyId ${result.id} (${consecutiveFail}/${MAX_CONSECUTIVE_FAILS})`,
+            //             );
+
+            //             if (consecutiveFail >= MAX_CONSECUTIVE_FAILS) {
+            //                 shouldStop = true;
+            //                 break;
+            //             }
+            //         }
+            //     }
+
+            //     currentId += BATCH_SIZE;
+
+            //     if (shouldStop) break;
+            // }
             while (consecutiveFail < MAX_CONSECUTIVE_FAILS) {
-
                 const sucess = await this.scrapeMatch(currentId).catch(e => {
                     this.logger.error(e)
                     return false;
@@ -71,12 +112,16 @@ export class ScraperService {
         }
         const formatted = this.osuService.extractDetails(match);
 
-        await this.saveMatchData(formatted);
+        // await this.saveMatchData(formatted);
         this.logger.log(`Finished scraping and saving data for match ${matchId}`);
         return true;
     }
 
     private async saveMatchData(data: OsuMatchFormatted) {
+        if (data.maps.length > 30) {
+            this.logger.log(`Skipping match with more than 30 beatmaps: ${data.lobbyId}`);
+            return;
+        }
         return this.prisma.$transaction(async (prisma) => {
             await prisma.lobby.upsert({
                 where: { lobbyId: data.lobbyId },

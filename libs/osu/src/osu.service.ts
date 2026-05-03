@@ -1,31 +1,84 @@
 import { OsuMatch, OsuMatchFormatted, OsuToken } from './osu.types';
 import { HttpService } from '@nestjs/axios';
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { catchError, firstValueFrom, of } from 'rxjs';
 
+interface OsuClient {
+    clientId: number;
+    clientSecret: string;
+    token: string | null;
+    tokenExpiresAt: Date | null;
+}
+
 @Injectable()
-export class OsuService {
+export class OsuService implements OnModuleInit {
     private readonly logger = new Logger(OsuService.name);
     private readonly baseUrl = 'https://osu.ppy.sh/api/v2';
     private readonly tokenUrl = "https://osu.ppy.sh/oauth/token";
 
-    private token: string | null = null;
-    private tokenExpiresAt: Date | null = null;
-    private refreshToken: string | null = null;
+    private clients: OsuClient[] = [];
+    private currentIndex = 0;
 
     constructor(
         private readonly http: HttpService,
         private readonly config: ConfigService
     ) { }
 
+    async onModuleInit() {
+        const config: {
+            clientId: number | null;
+            clientSecret: string | null;
+        }[] = [
+                {
+                    clientId: this.config.getOrThrow('OSU_CLIENT_ID'),
+                    clientSecret: this.config.getOrThrow('OSU_CLIENT_SECRET'),
+                },
+                {
+                    clientId: this.config.get('OSU_CLIENT_ID_2') || null,
+                    clientSecret: this.config.get('OSU_CLIENT_SECRET_2') || null,
+                }
+            ];
+
+        this.clients = config
+            .filter((c) => c.clientId && c.clientSecret)
+            .map((c) => ({
+                clientId: c.clientId as number,
+                clientSecret: c.clientSecret as string,
+                token: null,
+                tokenExpiresAt: null,
+            }));
+
+        const results = await Promise.allSettled(this.clients.map(client => this.getClientToken(client)));
+
+        this.clients = this.clients.filter((c, i) => {
+            const result = results[i];
+            if (result.status === 'rejected') {
+                this.logger.warn(
+                    `Failed to get token for client ${c.clientId}: ${result.reason}`
+                );
+                return false;
+            }
+            return true;
+        })
+
+        if (this.clients.length === 0) {
+            this.logger.warn('No osu! clients configured');
+            return;
+        }
+
+        this.logger.log(
+            `Token pool ready — ${this.clients.length}/${config.length} clients valid`,
+        );
+    }
+
     async getMatch(id: number): Promise<OsuMatch | null> {
-        await this.ensureToken();
+        const client = await this.getNextClient();
 
         const { data } = await firstValueFrom(
             this.http.get<OsuMatch>(`${this.baseUrl}/matches/${id}`, {
                 headers: {
-                    Authorization: `Bearer ${this.token}`
+                    Authorization: `Bearer ${client.token}`
                 }
             }).pipe(
                 catchError((err) => {
@@ -72,28 +125,35 @@ export class OsuService {
             }));
     }
 
-    private async ensureToken() {
-        if (!this.token || !this.tokenExpiresAt || new Date() >= this.tokenExpiresAt) {
-            await this.getToken();
+    private async getNextClient(): Promise<OsuClient> {
+        if (!this.clients.length) {
+            await this.onModuleInit();
+        }
+        const client = this.clients[this.currentIndex];
+        this.currentIndex = (this.currentIndex + 1) % this.clients.length;
+        await this.ensureToken(client);
+        return client;
+    }
+
+    private async ensureToken(client: OsuClient) {
+        if (!client.token || !client.tokenExpiresAt || new Date() >= client.tokenExpiresAt) {
+            await this.getClientToken(client);
         }
     }
 
-    private async getToken() {
-        this.logger.log('Getting osu! API token');
+    private async getClientToken(client: OsuClient) {
+        this.logger.log(`Getting osu! API token for client ${client.clientId}`);
 
         const { data } = await firstValueFrom(
             this.http.post<OsuToken>(this.tokenUrl, {
-                client_id: this.config.getOrThrow('OSU_CLIENT_ID'),
-                client_secret: this.config.getOrThrow('OSU_CLIENT_SECRET'),
+                client_id: client.clientId,
+                client_secret: client.clientSecret,
                 grant_type: 'client_credentials',
                 scope: 'public'
             })
         );
 
-        this.token = data.access_token;
-        this.refreshToken = data.refresh_token;
-        this.tokenExpiresAt = new Date(Date.now() + data.expires_in * 1000);
-
-        this.logger.log('Successfully obtained osu! API token. Expires at: ' + this.tokenExpiresAt.toISOString());
+        client.token = data.access_token;
+        client.tokenExpiresAt = new Date(Date.now() + data.expires_in * 1000);
     }
 }

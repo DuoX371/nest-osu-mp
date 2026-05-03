@@ -12,5 +12,5 @@ export class LobbyFilterInput {
     playerId?: number;       // search by player osu id
 
     @Field(() => Int, { nullable: true })
-    beatmapsetId?: number;
+    beatmapId?: number;
 }

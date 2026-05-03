@@ -14,40 +14,50 @@ export class LobbyService {
     async findAll(filter?: LobbyFilterInput, pagination?: PaginationInput) {
         if (isEmpty(filter)) {
             return [];
-        }
+        };
 
-        const where: LobbyWhereInput = {};
+
+        const conditions: LobbyWhereInput[] = [];
 
         if (filter.title) {
-            where.title = { contains: filter.title, mode: 'insensitive' };
+            conditions.push({ title: { startsWith: filter.title, mode: 'insensitive' } });
         }
 
-        if (filter.playerId || filter.username) {
-            where.players = {
-                some: {
-                    ...(filter.playerId && { playerId: filter.playerId }),
-                    ...(filter.username && {
-                        player: {
-                            username: {
-                                contains: filter.username,
-                                mode: 'insensitive'
-                            }
-                        }
-                    })
-                }
-            };
-        }
-
-        if (filter.beatmapsetId) {
-            where.beatmaps = {
-                some: {
-                    beatmapSetId: filter.beatmapsetId
-                }
+        if (filter.username) {
+            if (filter.username.length < 4) {
+                return [];
             }
+            conditions.push({
+                players: {
+                    some: {
+                        player: {
+                            username: { startsWith: filter.username, mode: 'insensitive' }
+                        }
+                    }
+                }
+            });
+        }
+
+        if (filter.playerId) {
+            conditions.push({
+                players: {
+                    some: {
+                        playerId: filter.playerId
+                    }
+                }
+            })
+        }
+
+        if (filter.beatmapId) {
+            conditions.push({
+                beatmaps: {
+                    some: { beatmapId: filter.beatmapId }
+                }
+            })
         }
 
         return this.prisma.lobby.findMany({
-            where,
+            where: { AND: conditions },
             include: {
                 players: { include: { player: true } }
             },

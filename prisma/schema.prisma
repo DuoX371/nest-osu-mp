@@ -1,0 +1,50 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+  binaryTargets        = ["native", "linux-musl", "rhel-openssl-3.0.x"]
+  moduleFormat = "esm"
+  generatedFileExtension = "ts"
+  importFileExtension = "ts"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Lobby {
+  lobbyId   Int      @id
+  title     String
+  createdAt DateTime @default(now())
+  status    String
+  players   LobbyPlayer[]
+  beatmaps  Beatmap[]
+}
+
+model Player {
+  playerId  Int      @id
+  username  String
+  lobbies   LobbyPlayer[]
+}
+
+model LobbyPlayer {
+  lobbyId   Int
+  playerId  Int
+  lobby     Lobby    @relation(fields: [lobbyId], references: [lobbyId])
+  player    Player   @relation(fields: [playerId], references: [playerId])
+  @@id([lobbyId, playerId])
+}
+
+model Beatmap {
+  id            Int      @id @default(autoincrement())
+  beatmapId     Int      
+  beatmapSetId  Int
+  lobbyId       Int
+  lobby         Lobby    @relation(fields: [lobbyId], references: [lobbyId])
+
+  @@unique([lobbyId, beatmapId])
+}

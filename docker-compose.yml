@@ -1,0 +1,14 @@
+services:
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - ${PORT:-3000}:3000
+
+  worker:
+    build:
+      context: ./apps/worker
+      dockerfile: Dockerfile
+    restart: unless-stopped

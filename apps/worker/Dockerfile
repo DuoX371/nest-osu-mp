@@ -9,7 +9,7 @@ COPY . .
 RUN npm ci
 
 RUN npm run prisma:generate
-RUN npm run prisma:migrate:prod
+# RUN npm run prisma:migrate:prod
 RUN npm run build:worker
 
 # Runner stage
@@ -23,4 +23,4 @@ COPY --from=builder /app/package*.json ./
 
 RUN npm ci --omit=dev
 
-CMD ["node", "dist/apps/worker/main"]
+CMD ["sh", "-c", "npm run prisma:migrate:prod && npm run start:worker"]

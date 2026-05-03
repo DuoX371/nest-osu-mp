@@ -30,7 +30,6 @@ export class ScraperService {
             });
 
             const startId = latest ? latest.lobbyId + 1 : 1;
-            // const startId = 120000000;
             this.logger.log(`New scrape from lobbyId: ${startId}`);
 
             let currentId = startId;

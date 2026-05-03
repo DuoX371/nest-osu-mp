@@ -5,9 +5,8 @@ WORKDIR /app
 
 COPY package*.json ./
 
-RUN npm ci --omit=dev
-
 COPY . .
+RUN npm ci
 
 RUN npm run prisma:generate
 RUN npm run build:worker
@@ -17,9 +16,10 @@ FROM node:lts-alpine AS runner
 
 WORKDIR /app
 
-COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/generated ./generated
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package*.json ./
+
+RUN npm ci --omit=dev
 
 CMD ["node", "dist/apps/worker/main"]

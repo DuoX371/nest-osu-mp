@@ -111,7 +111,7 @@ export class ScraperService {
         }
         const formatted = this.osuService.extractDetails(match);
 
-        // await this.saveMatchData(formatted);
+        await this.saveMatchData(formatted);
         this.logger.log(`Finished scraping and saving data for match ${matchId}`);
         return true;
     }

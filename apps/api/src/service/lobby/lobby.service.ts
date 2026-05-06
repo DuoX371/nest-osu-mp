@@ -59,11 +59,21 @@ export class LobbyService {
         return this.prisma.lobby.findMany({
             where: { AND: conditions },
             include: {
-                players: { include: { player: true } }
+                players: { include: { player: true } },
+                beatmaps: { include: { lobby: true } }
             },
             skip: pagination?.skip ?? 0,
             take: Math.min(pagination?.limit ?? 20, 100),
             orderBy: { lobbyId: "desc" },
         });
+    }
+
+    async getLatestLobby() {
+        const lobby = await this.prisma.lobby.findFirst({
+            orderBy: { lobbyId: 'desc' },
+            select: { lobbyId: true }
+        });
+
+        return lobby?.lobbyId ?? null;
     }
 }

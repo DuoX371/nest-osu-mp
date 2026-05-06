@@ -1,6 +1,7 @@
 import { Field, Int, ObjectType } from "@nestjs/graphql";
 import { Player } from "./player.model";
 import { LobbyStatus } from "../enum/lobby.enum";
+import { Beatmap } from "./beatmap.model";
 
 @ObjectType()
 export class Lobby {
@@ -19,5 +20,6 @@ export class Lobby {
     @Field(() => [Player], { nullable: true })
     players?: Player[];
 
-    // @Field(() => [BeatMap])
+    @Field(() => [Beatmap], { nullable: true })
+    beatmaps?: Beatmap[]
 }

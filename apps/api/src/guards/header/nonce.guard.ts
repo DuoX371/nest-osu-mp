@@ -20,7 +20,7 @@ export class NonceGuard implements CanActivate {
       throw new UnauthorizedException("Invalid nonce");
     }
 
-    const diff = Math.abs(Date.now() - nonce)
+    const diff = Math.abs(Date.now() - Number(nonce))
     if (diff > NONCE_TOLERANCE_MS) {
       throw new UnauthorizedException("Invalid Nonce");
     }

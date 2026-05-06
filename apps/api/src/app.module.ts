@@ -9,6 +9,7 @@ import { LobbyService } from './service/lobby/lobby.service';
 import { LobbyResolver } from './resolver/lobby/lobby.resolver';
 import { APP_GUARD } from '@nestjs/core';
 import { NonceGuard } from './guards/header/nonce.guard';
+import { CommonModule } from '@common/common';
 
 @Module({
   imports: [
@@ -18,7 +19,12 @@ import { NonceGuard } from './guards/header/nonce.guard';
       driver: ApolloDriver,
       autoSchemaFile: true,
       // playground: true,
+      installSubscriptionHandlers: true,
+      subscriptions: {
+        'graphql-ws': true
+      }
     }),
+    CommonModule
   ],
   controllers: [AppController],
   providers: [

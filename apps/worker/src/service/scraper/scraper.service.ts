@@ -1,8 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { PUB_SUB } from '@common/common/pubsub/pubsub.module';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { OsuService } from '@osu/osu';
 import { OsuMatchFormatted } from '@osu/osu/osu.types';
 import { PrismaService } from '@prisma-client/prisma';
+import { LOBBY_ADDED } from 'apps/api/src/resolver/lobby/lobby.resolver';
+import { PubSub } from 'graphql-subscriptions';
 
 @Injectable()
 export class ScraperService {
@@ -11,7 +14,8 @@ export class ScraperService {
 
     constructor(
         private readonly osuService: OsuService,
-        private readonly prisma: PrismaService
+        private readonly prisma: PrismaService,
+        @Inject(PUB_SUB) private readonly pubSub: PubSub,
     ) { }
 
     @Cron(CronExpression.EVERY_MINUTE)
@@ -112,6 +116,7 @@ export class ScraperService {
         const formatted = this.osuService.extractDetails(match);
 
         await this.saveMatchData(formatted);
+        this.pubSub.publish(LOBBY_ADDED, { latestLobbyId: formatted.lobbyId });
         this.logger.log(`Finished scraping and saving data for match ${matchId}`);
         return true;
     }

@@ -22,6 +22,15 @@ export class NonceGuard implements CanActivate {
       return true
     }
 
+    if (context.getType() !== 'http') {
+      const gqlCtx = GqlExecutionContext.create(context);
+      const info = gqlCtx.getInfo();
+
+      if (info.operation.operation === 'subscription') {
+        return true;
+      }
+    }
+
     const request = this.getRequest(context);
     const nonce = request.headers['x-nonce'];
 

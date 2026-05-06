@@ -6,7 +6,6 @@ import { NonceGuard } from './guards/header/nonce.guard';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.useGlobalInterceptors(new LoggingInterceptor());
-  app.useGlobalGuards(new NonceGuard());
 
   app.enableCors({
     origin: ['https://osump.chooh.moe', "http://localhost:3001"]

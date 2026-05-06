@@ -21,9 +21,9 @@ export class LoggingInterceptor implements NestInterceptor {
         const gqlCtx = GqlExecutionContext.create(context);
         const info = gqlCtx.getInfo();
         const args = gqlCtx.getArgs();
-        const operationName = `${info.parentType.name}.${info.fieldName}`;
+        const operationName = `${info.parentType?.name}.${info.fieldName}`;
 
-        if (info.parentType.name !== 'Query' && info.parentType.name !== 'Mutation') {
+        if (info.parentType?.name !== 'Query' && info.parentType?.name !== 'Mutation') {
             return next.handle();
         }
 

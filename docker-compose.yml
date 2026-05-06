@@ -6,9 +6,19 @@ services:
     restart: unless-stopped
     ports:
       - ${PORT:-3000}:3000
+    healthcheck:
+      test: [ "CMD", "curl", "--fail", "http://localhost:${PORT:-3000}/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   worker:
     build:
       context: .
       dockerfile: apps/worker/Dockerfile
     restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "curl", "--fail", "http://localhost:${PORT:-3001}/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5

@@ -9,6 +9,15 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    expose:
+      - "3000"    # ← tell Docker the port without publishing it
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.http-0-swd0q90gid60sbg6cr4qdi2s-api.entryPoints=http"
+      - "traefik.http.routers.http-0-swd0q90gid60sbg6cr4qdi2s-api.rule=Host(`apig.chooh.moe`) && PathPrefix(`/`)"
+      - "traefik.http.routers.http-0-swd0q90gid60sbg6cr4qdi2s-api.middlewares=gzip"
+      - "traefik.http.routers.http-0-swd0q90gid60sbg6cr4qdi2s-api.service=api-service"
+      - "traefik.http.services.api-service.loadbalancer.server.port=3000"
 
   worker:
     build:

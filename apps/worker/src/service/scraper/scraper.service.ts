@@ -42,61 +42,61 @@ export class ScraperService {
             const BATCH_SIZE = 10;
 
             // Temporary
-            // while (consecutiveFail < MAX_CONSECUTIVE_FAILS) {
-            //     const batchIds = Array.from(
-            //         { length: BATCH_SIZE },
-            //         (_, i) => currentId + i
-            //     );
-
-            //     const results = await Promise.all(
-            //         batchIds.map((id) =>
-            //             this.scrapeMatch(id)
-            //                 .then(() => ({ id, success: true }))
-            //                 .catch((e) => {
-            //                     this.logger.error(`Error on lobbyId ${id}: ${e.message}`);
-            //                     return { id, success: false };
-            //                 }),
-            //         ),
-            //     );
-
-            //     // process results in order to track consecutive fails correctly
-            //     let shouldStop = false;
-            //     for (const result of results) {
-            //         if (result.success) {
-            //             consecutiveFail = 0;
-            //         } else {
-            //             consecutiveFail++;
-            //             this.logger.warn(
-            //                 `Failed lobbyId ${result.id} (${consecutiveFail}/${MAX_CONSECUTIVE_FAILS})`,
-            //             );
-
-            //             if (consecutiveFail >= MAX_CONSECUTIVE_FAILS) {
-            //                 shouldStop = true;
-            //                 break;
-            //             }
-            //         }
-            //     }
-
-            //     currentId += BATCH_SIZE;
-
-            //     if (shouldStop) break;
-            // }
             while (consecutiveFail < MAX_CONSECUTIVE_FAILS) {
-                const sucess = await this.scrapeMatch(currentId).catch(e => {
-                    this.logger.error(e)
-                    return false;
-                })
+                const batchIds = Array.from(
+                    { length: BATCH_SIZE },
+                    (_, i) => currentId + i
+                );
 
-                if (sucess) {
-                    consecutiveFail = 0;
-                    currentId++;
-                } else {
-                    consecutiveFail++;
-                    this.logger.warn(
-                        `Failed to fetch lobbyId ${currentId} (${consecutiveFail}/${MAX_CONSECUTIVE_FAILS})`,
-                    );
+                const results = await Promise.all(
+                    batchIds.map((id) =>
+                        this.scrapeMatch(id)
+                            .then(() => ({ id, success: true }))
+                            .catch((e) => {
+                                this.logger.error(`Error on lobbyId ${id}: ${e.message}`);
+                                return { id, success: false };
+                            }),
+                    ),
+                );
+
+                // process results in order to track consecutive fails correctly
+                let shouldStop = false;
+                for (const result of results) {
+                    if (result.success) {
+                        consecutiveFail = 0;
+                    } else {
+                        consecutiveFail++;
+                        this.logger.warn(
+                            `Failed lobbyId ${result.id} (${consecutiveFail}/${MAX_CONSECUTIVE_FAILS})`,
+                        );
+
+                        if (consecutiveFail >= MAX_CONSECUTIVE_FAILS) {
+                            shouldStop = true;
+                            break;
+                        }
+                    }
                 }
+
+                currentId += BATCH_SIZE;
+
+                if (shouldStop) break;
             }
+            // while (consecutiveFail < MAX_CONSECUTIVE_FAILS) {
+            //     const sucess = await this.scrapeMatch(currentId).catch(e => {
+            //         this.logger.error(e)
+            //         return false;
+            //     })
+
+            //     if (sucess) {
+            //         consecutiveFail = 0;
+            //         currentId++;
+            //     } else {
+            //         consecutiveFail++;
+            //         this.logger.warn(
+            //             `Failed to fetch lobbyId ${currentId} (${consecutiveFail}/${MAX_CONSECUTIVE_FAILS})`,
+            //         );
+            //     }
+            // }
             this.logger.log(`Scrape completed. Current Lobby: ${currentId}`);
         } catch (error) {
             this.logger.error("Scrapper crashed:", error)

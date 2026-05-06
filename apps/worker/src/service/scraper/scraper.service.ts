@@ -11,6 +11,7 @@ import { PubSub } from 'graphql-subscriptions';
 export class ScraperService {
     private readonly logger = new Logger(ScraperService.name);
     private isRunning = false;
+    private isUpdating = false;
 
     constructor(
         private readonly osuService: OsuService,
@@ -105,6 +106,41 @@ export class ScraperService {
         }
     }
 
+    @Cron(CronExpression.EVERY_5_MINUTES)
+    async updateOngoingMatches() {
+        if (this.isUpdating) {
+            this.logger.warn("Update ongoing already running. Skipping");
+            return;
+        }
+
+        this.isUpdating = true;
+
+        try {
+
+        } catch (error) {
+            const ongoingLobbies = await this.prisma.lobby.findMany({
+                where: { status: 'ongoing' },
+                select: { lobbyId: true },
+            });
+
+            if (ongoingLobbies.length === 0) {
+                this.logger.log('No ongoing lobbies to update.');
+                return;
+            }
+
+            this.logger.log(`Updating ${ongoingLobbies.length} ongoing lobbies...`);
+
+            for (const { lobbyId } of ongoingLobbies) {
+                await this.scrapeMatch(lobbyId);
+            }
+            this.logger.log('Ongoing lobbies update complete.');
+        } finally {
+            this.isUpdating = false;
+        }
+    }
+
+
+
     async scrapeMatch(matchId: number) {
         this.logger.log(`Scraping data for match ${matchId}...`);
 
@@ -116,7 +152,7 @@ export class ScraperService {
         const formatted = this.osuService.extractDetails(match);
 
         await this.saveMatchData(formatted);
-        this.pubSub.publish(LOBBY_ADDED, { latestLobbyId: formatted.lobbyId });
+        await this.pubSub.publish(LOBBY_ADDED, { lobbyAdded: formatted.lobbyId });
         this.logger.log(`Finished scraping and saving data for match ${matchId}`);
         return true;
     }

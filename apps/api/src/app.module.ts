@@ -19,7 +19,6 @@ import { CommonModule } from '@common/common';
       driver: ApolloDriver,
       autoSchemaFile: true,
       // playground: true,
-      installSubscriptionHandlers: true,
       subscriptions: {
         'graphql-ws': true
       }

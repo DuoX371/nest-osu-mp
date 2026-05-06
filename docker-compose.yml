@@ -4,8 +4,6 @@ services:
       context: .
       dockerfile: apps/api/Dockerfile
     restart: unless-stopped
-    ports:
-      - ${PORT:-3000}:3000
     healthcheck:
       test: [ "CMD", "curl", "--fail", "http://localhost:${PORT:-3000}/health" ]
       interval: 10s

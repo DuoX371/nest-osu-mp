@@ -41,7 +41,9 @@
     "@prisma/client": "^7.8.0",
     "axios": "^1.15.2",
     "graphql": "^16.13.2",
+    "graphql-redis-subscriptions": "^2.7.0",
     "graphql-subscriptions": "^3.0.0",
+    "ioredis": "^5.10.1",
     "pg": "^8.20.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1"

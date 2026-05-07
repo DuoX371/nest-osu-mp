@@ -21,7 +21,8 @@ import { CommonModule } from '@common/common';
       // playground: true,
       subscriptions: {
         'graphql-ws': true
-      }
+      },
+      graphiql: true,
     }),
     CommonModule
   ],

@@ -1,5 +1,5 @@
 import { Args, Resolver, Query, ResolveField, Parent, Int, Subscription, Mutation } from '@nestjs/graphql';
-import { Lobby } from '@prisma-client/prisma/model/lobby.model';
+import { Lobby, PaginatedLobbies } from '@prisma-client/prisma/model/lobby.model';
 import { LobbyFilterInput } from '../../schema';
 import { LobbyService } from '../../service/lobby/lobby.service';
 import { Player } from '@prisma-client/prisma/model/player.model';
@@ -18,7 +18,7 @@ export class LobbyResolver {
         @Inject(PUB_SUB) private readonly pubSub: PubSub
     ) { }
 
-    @Query(() => [Lobby])
+    @Query(() => PaginatedLobbies)
     lobbies(
         @Args('filter', { nullable: true }) filter?: LobbyFilterInput,
         @Args('pagination', { nullable: true }) pagination?: PaginationInput

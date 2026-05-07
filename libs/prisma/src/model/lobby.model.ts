@@ -23,3 +23,12 @@ export class Lobby {
     @Field(() => [Beatmap], { nullable: true })
     beatmaps?: Beatmap[]
 }
+
+@ObjectType()
+export class PaginatedLobbies {
+    @Field(() => [Lobby])
+    lobbies!: Lobby[]
+
+    @Field(() => Int)
+    total!: number
+}

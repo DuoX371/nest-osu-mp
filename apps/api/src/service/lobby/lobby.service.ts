@@ -56,16 +56,21 @@ export class LobbyService {
             })
         }
 
-        return this.prisma.lobby.findMany({
-            where: { AND: conditions },
-            include: {
-                players: { include: { player: true } },
-                beatmaps: { include: { lobby: true } }
-            },
-            skip: pagination?.skip ?? 0,
-            take: Math.min(pagination?.limit ?? 20, 100),
-            orderBy: { lobbyId: "desc" },
-        });
+        const [lobbies, total] = await this.prisma.$transaction([
+            this.prisma.lobby.findMany({
+                where: { AND: conditions },
+                include: {
+                    players: { include: { player: true } },
+                    beatmaps: { include: { lobby: true } }
+                },
+                skip: pagination?.skip ?? 0,
+                take: Math.min(pagination?.limit ?? 20, 100),
+                orderBy: { lobbyId: "desc" },
+            }),
+            this.prisma.lobby.count({ where: { AND: conditions } })
+        ]);
+
+        return { lobbies, total };
     }
 
     async getLatestLobby() {

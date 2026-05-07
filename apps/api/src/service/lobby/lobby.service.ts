@@ -16,7 +16,6 @@ export class LobbyService {
             return [];
         };
 
-
         const conditions: LobbyWhereInput[] = [];
 
         if (filter.title) {
@@ -24,7 +23,7 @@ export class LobbyService {
         }
 
         if (filter.username) {
-            if (filter.username.length < 4) {
+            if (filter.username.length < 3) {
                 return [];
             }
             conditions.push({

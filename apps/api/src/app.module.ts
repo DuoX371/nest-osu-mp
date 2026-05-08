@@ -22,7 +22,17 @@ import { CommonModule } from '@common/common';
       subscriptions: {
         'graphql-ws': true
       },
-      graphiql: true,
+      graphiql: process.env.NODE_ENV !== 'production',
+      formatError: (error) => {
+        console.error(error); // keep full details in server log
+        if (process.env.NODE_ENV === 'production') {
+          return {
+            message: 'Internal server error',
+            code: error.extensions?.code ?? 'INTERNAL_SERVER_ERROR',
+          };
+        }
+        return error; // full detail in dev
+      },
     }),
     CommonModule
   ],

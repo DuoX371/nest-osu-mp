@@ -116,8 +116,6 @@ export class ScraperService {
         this.isUpdating = true;
 
         try {
-
-        } catch (error) {
             const ongoingLobbies = await this.prisma.lobby.findMany({
                 where: { status: 'ongoing' },
                 select: { lobbyId: true },
@@ -134,6 +132,8 @@ export class ScraperService {
                 await this.scrapeMatch(lobbyId);
             }
             this.logger.log('Ongoing lobbies update complete.');
+        } catch (error) {
+            this.logger.log('Failed to update ongoing lobbies:', error)
         } finally {
             this.isUpdating = false;
         }

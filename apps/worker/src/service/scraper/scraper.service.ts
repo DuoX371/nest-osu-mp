@@ -83,8 +83,8 @@ export class ScraperService {
             //     if (shouldStop) break;
             // }
             while (consecutiveFail < MAX_CONSECUTIVE_FAILS) {
-                const sucess = await this.scrapeMatch(currentId).catch(e => {
-                    this.logger.error(e)
+                const sucess = await this.scrapeMatch(currentId).catch(_e => {
+                    //this.logger.error(e)
                     return false;
                 })
 

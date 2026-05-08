@@ -13,7 +13,7 @@ export class LobbyService {
 
     async findAll(filter?: LobbyFilterInput, pagination?: PaginationInput) {
         if (isEmpty(filter)) {
-            return [];
+           return { lobbies: [], total: 0 }
         };
 
         const conditions: LobbyWhereInput[] = [];
@@ -24,7 +24,7 @@ export class LobbyService {
 
         if (filter.username) {
             if (filter.username.length < 3) {
-                return [];
+                return { lobbies: [], total: 0 }
             }
             conditions.push({
                 players: {

@@ -16,7 +16,6 @@ export const PUB_SUB = 'PUB_SUB';
                 const redisHost = config.get('REDIS_HOST');
 
                 if (!redisHost) {
-                    console.warn('[PubSub] No REDIS_HOST found — using in-memory PubSub (local only)');
                     return new PubSub();
                 }
 

@@ -10,6 +10,8 @@ import { LobbyResolver } from './resolver/lobby/lobby.resolver';
 import { APP_GUARD } from '@nestjs/core';
 import { NonceGuard } from './guards/header/nonce.guard';
 import { CommonModule } from '@common/common';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { GqlThrottlerGuard } from './guards/gql-throttler/gql-throttler.guard';
 
 @Module({
   imports: [
@@ -24,17 +26,24 @@ import { CommonModule } from '@common/common';
       },
       graphiql: process.env.NODE_ENV !== 'production',
       formatError: (error) => {
-        console.error(error); // keep full details in server log
+        console.error(error);
         if (process.env.NODE_ENV === 'production') {
           return {
             message: 'Internal server error',
             code: error.extensions?.code ?? 'INTERNAL_SERVER_ERROR',
           };
         }
-        return error; // full detail in dev
+        return error;
       },
+      context: ({ req, res }) => ({ req, res }),
     }),
-    CommonModule
+    CommonModule,
+    ThrottlerModule.forRoot([
+      {
+        ttl: 60_000,
+        limit: 60,
+      },
+    ]),
   ],
   controllers: [AppController],
   providers: [
@@ -44,6 +53,10 @@ import { CommonModule } from '@common/common';
     {
       provide: APP_GUARD,
       useClass: NonceGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: GqlThrottlerGuard,
     }
   ],
 })

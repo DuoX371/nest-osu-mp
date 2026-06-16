@@ -40,48 +40,6 @@ export class ScraperService {
             let currentId = startId;
             let consecutiveFail = 0;
             const MAX_CONSECUTIVE_FAILS = 3;
-            // const BATCH_SIZE = 10;
-
-            // // Temporary
-            // while (consecutiveFail < MAX_CONSECUTIVE_FAILS) {
-            //     const batchIds = Array.from(
-            //         { length: BATCH_SIZE },
-            //         (_, i) => currentId + i
-            //     );
-
-            //     const results = await Promise.all(
-            //         batchIds.map((id) =>
-            //             this.scrapeMatch(id)
-            //                 .then(() => ({ id, success: true }))
-            //                 .catch((e) => {
-            //                     this.logger.error(`Error on lobbyId ${id}: ${e.message}`);
-            //                     return { id, success: false };
-            //                 }),
-            //         ),
-            //     );
-
-            //     // process results in order to track consecutive fails correctly
-            //     let shouldStop = false;
-            //     for (const result of results) {
-            //         if (result.success) {
-            //             consecutiveFail = 0;
-            //         } else {
-            //             consecutiveFail++;
-            //             this.logger.warn(
-            //                 `Failed lobbyId ${result.id} (${consecutiveFail}/${MAX_CONSECUTIVE_FAILS})`,
-            //             );
-
-            //             if (consecutiveFail >= MAX_CONSECUTIVE_FAILS) {
-            //                 shouldStop = true;
-            //                 break;
-            //             }
-            //         }
-            //     }
-
-            //     currentId += BATCH_SIZE;
-
-            //     if (shouldStop) break;
-            // }
             while (consecutiveFail < MAX_CONSECUTIVE_FAILS) {
                 const sucess = await this.scrapeMatch(currentId).catch(_e => {
                     //this.logger.error(e)
@@ -222,5 +180,44 @@ export class ScraperService {
                 })
             }
         });
+    }
+
+    // @Cron(CronExpression.EVERY_DAY_AT_1AM)
+    async cleanLobbies() {
+        this.logger.log("Running lobbies housekeep")
+
+        try {
+            const sixMonthsAgo = new Date()
+            sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+
+
+            await this.prisma.$transaction(async (prisma) => {
+                const deletedPlayers = await prisma.lobbyPlayer.deleteMany({
+                    where: {
+                        lobby: {
+                            createdAt: { lt: sixMonthsAgo }
+                        }
+                    }
+                });
+
+                const deleteBeatmaps = await prisma.beatmap.deleteMany({
+                    where: {
+                        lobby: {
+                            createdAt: { lt: sixMonthsAgo }
+                        }
+                    }
+                });
+
+                const deleteLobbies = await prisma.lobby.deleteMany({
+                    where: {
+                        createdAt: { lt: sixMonthsAgo }
+                    }
+                });
+
+                this.logger.log(`Deleted ${deletedPlayers} lobbyplayers, ${deleteBeatmaps} beatmaps, and ${deleteLobbies} lobbies.`)
+            });
+        } catch (error) {
+            this.logger.error("Failed to clean lobbies:", error)
+        }
     }
 }

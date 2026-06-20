@@ -106,8 +106,6 @@ export class ScraperService {
         }
     }
 
-
-
     async scrapeMatch(matchId: number) {
         this.logger.log(`Scraping data for match ${matchId}...`);
 
@@ -125,10 +123,16 @@ export class ScraperService {
     }
 
     private async saveMatchData(data: OsuMatchFormatted) {
-        if (data.maps.length > 100) {
-            this.logger.log(`Skipping match with more than 30 beatmaps: ${data.lobbyId}`);
+        // Delete ongoing records from DB if more than 50 beatmaps
+        if (data.maps.length > 50) {
+            await this.prisma.$transaction(async (prisma) => {
+                await prisma.lobbyPlayer.deleteMany({ where: { lobbyId: data.lobbyId } });
+                await prisma.beatmap.deleteMany({ where: { lobbyId: data.lobbyId } });
+                await prisma.lobby.delete({ where: { lobbyId: data.lobbyId } })
+            })
             return;
         }
+
         return this.prisma.$transaction(async (prisma) => {
             await prisma.lobby.upsert({
                 where: { lobbyId: data.lobbyId },

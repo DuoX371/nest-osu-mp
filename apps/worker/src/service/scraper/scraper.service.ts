@@ -6,6 +6,7 @@ import { OsuMatchFormatted } from '@osu/osu/osu.types';
 import { PrismaService } from '@prisma-client/prisma';
 import { LOBBY_ADDED } from 'apps/api/src/resolver/lobby/lobby.resolver';
 import { PubSub } from 'graphql-subscriptions';
+import pLimit from 'p-limit';
 
 @Injectable()
 export class ScraperService {
@@ -86,12 +87,17 @@ export class ScraperService {
 
             this.logger.log(`Updating ${ongoingLobbies.length} ongoing lobbies...`);
 
-            for (const { lobbyId } of ongoingLobbies) {
-                await this.scrapeMatch(lobbyId).catch((error) => {
-                    this.logger.error(error);
-                    return false;
+            const limit = pLimit(10); // 10 concurrent requests
+            const tasks = ongoingLobbies.map(({ lobbyId }) => {
+                return limit(async () => {
+                    return this.scrapeMatch(lobbyId).catch((error) => {
+                        this.logger.error(error);
+                        return false;
+                    })
                 })
-            }
+            })
+
+            await Promise.all(tasks);
             this.logger.log('Ongoing lobbies update complete.');
         } catch (error) {
             this.logger.log('Failed to update ongoing lobbies:', error)
@@ -119,7 +125,7 @@ export class ScraperService {
     }
 
     private async saveMatchData(data: OsuMatchFormatted) {
-        if (data.maps.length > 30) {
+        if (data.maps.length > 100) {
             this.logger.log(`Skipping match with more than 30 beatmaps: ${data.lobbyId}`);
             return;
         }

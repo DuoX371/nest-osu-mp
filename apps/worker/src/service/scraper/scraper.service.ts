@@ -87,7 +87,10 @@ export class ScraperService {
             this.logger.log(`Updating ${ongoingLobbies.length} ongoing lobbies...`);
 
             for (const { lobbyId } of ongoingLobbies) {
-                await this.scrapeMatch(lobbyId);
+                await this.scrapeMatch(lobbyId).catch((error) => {
+                    this.logger.error(error);
+                    return false;
+                })
             }
             this.logger.log('Ongoing lobbies update complete.');
         } catch (error) {
@@ -182,7 +185,7 @@ export class ScraperService {
         });
     }
 
-    // @Cron(CronExpression.EVERY_DAY_AT_1AM)
+    @Cron(CronExpression.EVERY_DAY_AT_1AM)
     async cleanLobbies() {
         this.logger.log("Running lobbies housekeep")
 

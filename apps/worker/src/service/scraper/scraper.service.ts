@@ -128,7 +128,7 @@ export class ScraperService {
             await this.prisma.$transaction(async (prisma) => {
                 await prisma.lobbyPlayer.deleteMany({ where: { lobbyId: data.lobbyId } });
                 await prisma.beatmap.deleteMany({ where: { lobbyId: data.lobbyId } });
-                await prisma.lobby.delete({ where: { lobbyId: data.lobbyId } })
+                await prisma.lobby.deleteMany({ where: { lobbyId: data.lobbyId } })
             })
             return;
         }

@@ -2,7 +2,8 @@ import { OsuMatch, OsuMatchFormatted, OsuToken } from './osu.types';
 import { HttpService } from '@nestjs/axios';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { catchError, firstValueFrom, of } from 'rxjs';
+import { firstValueFrom } from 'rxjs';
+import { isAxiosError } from 'axios';
 
 interface OsuClient {
     clientId: number;
@@ -72,26 +73,28 @@ export class OsuService implements OnModuleInit {
         );
     }
 
-    async getMatch(id: number): Promise<OsuMatch | null> {
+    async getMatch(id: number): Promise<OsuMatch> {
         const client = await this.getNextClient();
-
-        const { data } = await firstValueFrom(
-            this.http.get<OsuMatch>(`${this.baseUrl}/matches/${id}`, {
+        const fetchMatch = async () => {
+            const { data } = await firstValueFrom(this.http.get<OsuMatch>(`${this.baseUrl}/matches/${id}`, {
                 headers: {
                     Authorization: `Bearer ${client.token}`
                 }
-            }).pipe(
-                catchError((err) => {
-                    if (err.status === 401) {
-                        // expired or unaothrized
-                        return of({ data: null });
-                    }
-                    throw err;
-                })
-            )
-        );
+            }));
+            return data;
+        };
 
-        return data;
+        try {
+            return await fetchMatch();
+        } catch (error) {
+            if (!isAxiosError(error) || error.response?.status !== 401) {
+                throw error;
+            }
+
+            this.logger.warn(`osu! rejected the token for client ${client.clientId}; refreshing it`);
+            await this.getClientToken(client);
+            return fetchMatch();
+        }
     }
 
     /** 
@@ -121,13 +124,16 @@ export class OsuService implements OnModuleInit {
             .filter(e => e.detail.type === 'other' && e.game)
             .map(e => ({
                 beatmapId: e.game!.beatmap_id,
-                beatmapsetId: e.game!.id
+                beatmapsetId: e.game!.beatmap.beatmapset_id
             }));
     }
 
     private async getNextClient(): Promise<OsuClient> {
         if (!this.clients.length) {
             await this.onModuleInit();
+        }
+        if (!this.clients.length) {
+            throw new Error('No osu! API clients are available');
         }
         const client = this.clients[this.currentIndex];
         this.currentIndex = (this.currentIndex + 1) % this.clients.length;

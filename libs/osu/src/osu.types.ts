@@ -41,6 +41,7 @@ export interface OsuMatchEvent {
         mods: string[];
         beatmap: {
             id: number;
+            beatmapset_id: number;
         }
         scores: {}[];
     }

@@ -7,6 +7,7 @@ import { PrismaService } from '@prisma-client/prisma';
 import { LOBBY_ADDED } from 'apps/api/src/resolver/lobby/lobby.resolver';
 import { PubSub } from 'graphql-subscriptions';
 import pLimit from 'p-limit';
+import { isAxiosError } from 'axios';
 
 @Injectable()
 export class ScraperService {
@@ -30,32 +31,34 @@ export class ScraperService {
         this.isRunning = true;
 
         try {
-            const latest = await this.prisma.lobby.findFirst({
-                orderBy: { lobbyId: "desc" },
-                select: { lobbyId: true },
+            const cursor = await this.prisma.scrapeCursor.findUniqueOrThrow({
+                where: { id: 1 },
             });
+            let currentId = cursor.nextLobbyId;
+            let consecutiveMissing = 0;
+            const MAX_CONSECUTIVE_MISSING = 3;
+            this.logger.log(`New scrape from lobbyId: ${currentId}`);
 
-            const startId = latest ? latest.lobbyId + 1 : 1;
-            this.logger.log(`New scrape from lobbyId: ${startId}`);
+            while (consecutiveMissing < MAX_CONSECUTIVE_MISSING) {
+                try {
+                    await this.scrapeMatch(currentId);
+                    consecutiveMissing = 0;
+                } catch (error) {
+                    if (!isAxiosError(error) || error.response?.status !== 404) {
+                        const message = error instanceof Error ? error.message : String(error);
+                        this.logger.error(`Failed to scrape lobbyId ${currentId}; will retry next run: ${message}`);
+                        break;
+                    }
 
-            let currentId = startId;
-            let consecutiveFail = 0;
-            const MAX_CONSECUTIVE_FAILS = 3;
-            while (consecutiveFail < MAX_CONSECUTIVE_FAILS) {
-                const sucess = await this.scrapeMatch(currentId).catch(_e => {
-                    //this.logger.error(e)
-                    return false;
-                })
-
-                if (sucess) {
-                    consecutiveFail = 0;
-                    currentId++;
-                } else {
-                    consecutiveFail++;
-                    this.logger.warn(
-                        `Failed to fetch lobbyId ${currentId} (${consecutiveFail}/${MAX_CONSECUTIVE_FAILS})`,
-                    );
+                    consecutiveMissing++;
+                    this.logger.log(`No match at lobbyId ${currentId} (${consecutiveMissing}/${MAX_CONSECUTIVE_MISSING})`);
                 }
+
+                await this.prisma.scrapeCursor.update({
+                    where: { id: 1 },
+                    data: { nextLobbyId: currentId + 1 },
+                });
+                currentId++;
             }
             this.logger.log(`Scrape completed. Current Lobby: ${currentId}`);
         } catch (error) {
@@ -110,10 +113,6 @@ export class ScraperService {
         this.logger.log(`Scraping data for match ${matchId}...`);
 
         const match = await this.osuService.getMatch(matchId);
-        if (!match) {
-            this.logger.log(`Skipping match: ${matchId}`);
-            return true;
-        }
         const formatted = this.osuService.extractDetails(match);
 
         await this.saveMatchData(formatted);

@@ -1,18 +1,78 @@
-import { Test, TestingModule } from '@nestjs/testing';
+import { HttpService } from '@nestjs/axios';
+import { ConfigService } from '@nestjs/config';
+import { AxiosError } from 'axios';
+import { of, throwError } from 'rxjs';
 import { OsuService } from './osu.service';
+import { OsuMatch, OsuMatchEventTypes } from './osu.types';
 
-describe('OsuService', () => {
+describe('OsuService token recovery', () => {
+  const match = { match: { id: 123 } } as OsuMatch;
+  let get: jest.Mock;
+  let post: jest.Mock;
   let service: OsuService;
 
-  beforeEach(async () => {
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [OsuService],
-    }).compile();
-
-    service = module.get<OsuService>(OsuService);
+  beforeEach(() => {
+    get = jest.fn();
+    post = jest.fn()
+      .mockReturnValueOnce(of({ data: { access_token: 'first-token', expires_in: 3600 } }))
+      .mockReturnValueOnce(of({ data: { access_token: 'refreshed-token', expires_in: 3600 } }));
+    const config = {
+      getOrThrow: (key: string) => key === 'OSU_CLIENT_ID' ? 1 : 'secret',
+      get: () => null,
+    };
+    service = new OsuService({ get, post } as unknown as HttpService, config as unknown as ConfigService);
   });
 
-  it('should be defined', () => {
-    expect(service).toBeDefined();
+  function unauthorized(): AxiosError {
+    return Object.assign(new AxiosError('Unauthorized'), {
+      response: { status: 401 },
+    });
+  }
+
+  it('refreshes a rejected token and retries the match once', async () => {
+    get.mockReturnValueOnce(throwError(() => unauthorized()))
+      .mockReturnValueOnce(of({ data: match }));
+
+    await expect(service.getMatch(123)).resolves.toBe(match);
+    expect(post).toHaveBeenCalledTimes(2);
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(get.mock.calls[0][1].headers.Authorization).toBe('Bearer first-token');
+    expect(get.mock.calls[1][1].headers.Authorization).toBe('Bearer refreshed-token');
+  });
+
+  it('propagates a second 401 instead of treating the match as missing', async () => {
+    get.mockReturnValue(throwError(() => unauthorized()));
+
+    await expect(service.getMatch(123)).rejects.toMatchObject({ response: { status: 401 } });
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(post).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not refresh the token for a rate limit response', async () => {
+    const rateLimit = Object.assign(new AxiosError('Rate limited'), {
+      response: { status: 429 },
+    });
+    get.mockReturnValue(throwError(() => rateLimit));
+
+    await expect(service.getMatch(123)).rejects.toBe(rateLimit);
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(post).toHaveBeenCalledTimes(1);
+  });
+
+  it('extracts the beatmapset ID from the beatmap, not the match game', () => {
+    const matchWithGame = {
+      events: [{
+        detail: { type: OsuMatchEventTypes.Other },
+        game: {
+          id: 900,
+          beatmap_id: 200,
+          beatmap: { id: 200, beatmapset_id: 300 },
+        },
+      }],
+    } as OsuMatch;
+
+    expect(service.extractMaps(matchWithGame)).toEqual([
+      { beatmapId: 200, beatmapsetId: 300 },
+    ]);
   });
 });

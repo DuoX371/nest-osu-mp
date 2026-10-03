@@ -7,6 +7,10 @@ export class LoggingInterceptor implements NestInterceptor {
     private readonly logger = new Logger(LoggingInterceptor.name);
 
     intercept(context: ExecutionContext, next: CallHandler<any>): Observable<any> | Promise<Observable<any>> {
+        if (context.getType<'graphql'>() !== 'graphql') {
+            return next.handle();
+        }
+
         const startTime = Date.now();
 
         return this.handleGql(context, next, startTime);

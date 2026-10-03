@@ -28,6 +28,11 @@ model Lobby {
   @@index([title(ops: raw("text_pattern_ops"))])
 }
 
+model ScrapeCursor {
+  id          Int @id
+  nextLobbyId Int
+}
+
 model Player {
   playerId  Int      @id
   username  String

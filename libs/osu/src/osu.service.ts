@@ -10,6 +10,7 @@ interface OsuClient {
     clientSecret: string;
     token: string | null;
     tokenExpiresAt: Date | null;
+    nextRequestAt: number;
 }
 
 @Injectable()
@@ -20,6 +21,12 @@ export class OsuService implements OnModuleInit {
 
     private clients: OsuClient[] = [];
     private currentIndex = 0;
+    private requestQueue: Promise<void> = Promise.resolve();
+    private nextRequestAt = 0;
+    private cooldownUntil = 0;
+    private sharedLimitAfterRateLimit = false;
+    private lastRateLimitAt = 0;
+    private consecutiveRateLimits = 0;
 
     constructor(
         private readonly http: HttpService,
@@ -48,6 +55,7 @@ export class OsuService implements OnModuleInit {
                 clientSecret: c.clientSecret as string,
                 token: null,
                 tokenExpiresAt: null,
+                nextRequestAt: 0,
             }));
 
         const results = await Promise.allSettled(this.clients.map(client => this.getClientToken(client)));
@@ -76,12 +84,7 @@ export class OsuService implements OnModuleInit {
     async getMatch(id: number): Promise<OsuMatch | null> {
         const client = await this.getNextClient();
         const fetchMatch = async () => {
-            const { data } = await firstValueFrom(this.http.get<OsuMatch>(`${this.baseUrl}/matches/${id}`, {
-                headers: {
-                    Authorization: `Bearer ${client.token}`
-                }
-            }));
-            return data;
+            return this.getFromOsu<OsuMatch>(`/matches/${id}`, client);
         };
 
         try {
@@ -122,12 +125,9 @@ export class OsuService implements OnModuleInit {
     }
 
     private async getLatestMatchIdForClient(client: OsuClient): Promise<number> {
-        const { data } = await firstValueFrom(this.http.get<{ matches: { id: number }[] }>(
-            `${this.baseUrl}/matches`, {
-                params: { limit: 1, sort: 'id_desc' },
-                headers: { Authorization: `Bearer ${client.token}` },
-            },
-        ));
+        const data = await this.getFromOsu<{ matches: { id: number }[] }>(
+            '/matches', client, { limit: 1, sort: 'id_desc' },
+        );
         const id = data.matches?.[0]?.id;
         if (!Number.isSafeInteger(id)) {
             throw new Error('osu! returned no latest match ID');
@@ -188,16 +188,72 @@ export class OsuService implements OnModuleInit {
     private async getClientToken(client: OsuClient) {
         this.logger.log(`Getting osu! API token for client ${client.clientId}`);
 
-        const { data } = await firstValueFrom(
-            this.http.post<OsuToken>(this.tokenUrl, {
-                client_id: client.clientId,
-                client_secret: client.clientSecret,
-                grant_type: 'client_credentials',
-                scope: 'public'
-            })
-        );
+        await this.waitForRequestSlot(client);
+        let data: OsuToken;
+        try {
+            ({ data } = await firstValueFrom(
+                this.http.post<OsuToken>(this.tokenUrl, {
+                    client_id: client.clientId,
+                    client_secret: client.clientSecret,
+                    grant_type: 'client_credentials',
+                    scope: 'public'
+                })
+            ));
+        } catch (error) {
+            this.handleRateLimit(error);
+            throw error;
+        }
 
         client.token = data.access_token;
         client.tokenExpiresAt = new Date(Date.now() + data.expires_in * 1000);
+    }
+
+    private async getFromOsu<T>(path: string, client: OsuClient, params?: Record<string, unknown>): Promise<T> {
+        await this.waitForRequestSlot(client);
+        try {
+            const { data } = await firstValueFrom(this.http.get<T>(`${this.baseUrl}${path}`, {
+                params,
+                headers: { Authorization: `Bearer ${client.token}` },
+            }));
+            return data;
+        } catch (error) {
+            this.handleRateLimit(error);
+            throw error;
+        }
+    }
+
+    private async waitForRequestSlot(client: OsuClient): Promise<void> {
+        const turn = this.requestQueue.then(async () => {
+            // Each client gets 40 requests/minute; spread their starts across one queue.
+            const activeClients = Math.max(1, this.clients.length);
+            const sharedInterval = this.sharedLimitAfterRateLimit ? 1500 : 1500 / activeClients;
+            while (true) {
+                const delay = Math.max(this.nextRequestAt, client.nextRequestAt, this.cooldownUntil) - Date.now();
+                if (delay <= 0) break;
+                await new Promise(resolve => setTimeout(resolve, delay));
+            }
+            const now = Date.now();
+            this.nextRequestAt = now + sharedInterval;
+            client.nextRequestAt = now + 1500;
+        });
+        this.requestQueue = turn.catch(() => undefined);
+        await turn;
+    }
+
+    private handleRateLimit(error: unknown): void {
+        if (!isAxiosError(error) || error.response?.status !== 429) return;
+
+        const now = Date.now();
+        this.consecutiveRateLimits = now - this.lastRateLimitAt < 30 * 60_000
+            ? Math.min(this.consecutiveRateLimits + 1, 5)
+            : 1;
+        this.lastRateLimitAt = now;
+        this.sharedLimitAfterRateLimit = true;
+        const backoff = Math.min(60 * 60_000, 5 * 60_000 * 2 ** (this.consecutiveRateLimits - 1));
+        const retryAfter = Number(error.response.headers?.['retry-after'] ?? error.response.data?.retry_after);
+        const retryAfterMs = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 0;
+        const delay = Math.max(backoff, retryAfterMs);
+        this.cooldownUntil = Math.max(this.cooldownUntil, now + delay);
+        this.logger.warn(`osu! returned 429; pausing all osu! requests for at least ${Math.ceil(delay / 60_000)} minutes`);
     }
 }

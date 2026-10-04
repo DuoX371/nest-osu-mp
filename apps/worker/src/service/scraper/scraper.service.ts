@@ -45,7 +45,7 @@ export class ScraperService {
                     await this.scrapeMatch(currentId);
                 } catch (error) {
                     if (!isAxiosError(error) || error.response?.status !== 404) {
-                        const message = error instanceof Error ? error.message : String(error);
+                        const message = this.describeError(error);
                         this.logger.error(`Failed to scrape lobbyId ${currentId}; will retry next run: ${message}`);
                         break;
                     }
@@ -58,20 +58,20 @@ export class ScraperService {
                     data: { nextLobbyId: currentId + 1 },
                 });
                 currentId++;
-                if (currentId <= lastId) {
-                    await this.waitBetweenMatches();
-                }
             }
             this.logger.log(`Scrape completed. Current Lobby: ${currentId}`);
         } catch (error) {
-            this.logger.error("Scrapper crashed:", error)
+            this.logger.error(`Scraper crashed: ${this.describeError(error)}`)
         } finally {
             this.isRunning = false;
         }
     }
 
-    private async waitBetweenMatches() {
-        await new Promise(resolve => setTimeout(resolve, 200));
+    private describeError(error: unknown): string {
+        if (isAxiosError(error)) {
+            return `osu! HTTP ${error.response?.status ?? 'request failed'}: ${error.message}`;
+        }
+        return error instanceof Error ? error.message : String(error);
     }
 
     @Cron(CronExpression.EVERY_5_MINUTES)
@@ -100,7 +100,7 @@ export class ScraperService {
             const tasks = ongoingLobbies.map(({ lobbyId }) => {
                 return limit(async () => {
                     return this.scrapeMatch(lobbyId).catch((error) => {
-                        this.logger.error(error);
+                        this.logger.error(`Failed to update lobby ${lobbyId}: ${this.describeError(error)}`);
                         return false;
                     })
                 })
@@ -109,7 +109,7 @@ export class ScraperService {
             await Promise.all(tasks);
             this.logger.log('Ongoing lobbies update complete.');
         } catch (error) {
-            this.logger.log('Failed to update ongoing lobbies:', error)
+            this.logger.error(`Failed to update ongoing lobbies: ${this.describeError(error)}`)
         } finally {
             this.isUpdating = false;
         }

@@ -10,6 +10,7 @@ describe('OsuService token recovery', () => {
   let get: jest.Mock;
   let post: jest.Mock;
   let service: OsuService;
+  let pace: jest.SpyInstance;
 
   beforeEach(() => {
     get = jest.fn();
@@ -21,12 +22,19 @@ describe('OsuService token recovery', () => {
       get: () => null,
     };
     service = new OsuService({ get, post } as unknown as HttpService, config as unknown as ConfigService);
+    pace = jest.spyOn(service as any, 'waitForRequestSlot').mockResolvedValue(undefined);
   });
 
   function unauthorized(): AxiosError {
     return Object.assign(new AxiosError('Unauthorized'), {
       response: { status: 401 },
     });
+  }
+
+  function setClients(count: number) {
+    const clients = Array.from({ length: count }, (_, i) => ({ clientId: i + 1, nextRequestAt: 0 }));
+    (service as any).clients = clients;
+    return clients;
   }
 
   it('refreshes a rejected token and retries the match once', async () => {
@@ -75,6 +83,96 @@ describe('OsuService token recovery', () => {
     await expect(service.getMatch(123)).rejects.toBe(rateLimit);
     expect(get).toHaveBeenCalledTimes(1);
     expect(post).toHaveBeenCalledTimes(1);
+  });
+
+  it('paces requests from every scraper task through one queue', async () => {
+    pace.mockRestore();
+    jest.useFakeTimers();
+    try {
+      const [client] = setClients(1);
+      await (service as any).waitForRequestSlot(client);
+      const second = (service as any).waitForRequestSlot(client);
+      let released = false;
+      second.then(() => { released = true; });
+
+      await jest.advanceTimersByTimeAsync(1499);
+      expect(released).toBe(false);
+      await jest.advanceTimersByTimeAsync(1);
+      await second;
+      expect(released).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('scales to two clients while keeping each client at 40 requests per minute', async () => {
+    pace.mockRestore();
+    jest.useFakeTimers();
+    try {
+      const [first, second] = setClients(2);
+      await (service as any).waitForRequestSlot(first);
+      const secondRequest = (service as any).waitForRequestSlot(second);
+      let secondReleased = false;
+      secondRequest.then(() => { secondReleased = true; });
+      await jest.advanceTimersByTimeAsync(749);
+      expect(secondReleased).toBe(false);
+      await jest.advanceTimersByTimeAsync(1);
+      await secondRequest;
+      expect(secondReleased).toBe(true);
+
+      const firstAgain = (service as any).waitForRequestSlot(first);
+      let firstReleased = false;
+      firstAgain.then(() => { firstReleased = true; });
+      await jest.advanceTimersByTimeAsync(749);
+      expect(firstReleased).toBe(false);
+      await jest.advanceTimersByTimeAsync(1);
+      await firstAgain;
+      expect(firstReleased).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('backs off for at least five minutes after a 429 and doubles on another 429', () => {
+    const rateLimit = Object.assign(new AxiosError('Rate limited'), {
+      response: { status: 429, headers: {}, data: { retry_after: 30 } },
+    });
+    (service as any).handleRateLimit(rateLimit);
+    expect((service as any).cooldownUntil - Date.now()).toBeGreaterThanOrEqual(5 * 60_000 - 1000);
+    (service as any).handleRateLimit(rateLimit);
+    expect((service as any).cooldownUntil - Date.now()).toBeGreaterThanOrEqual(10 * 60_000 - 1000);
+  });
+
+  it('holds subsequent requests until the 429 cooldown ends', async () => {
+    pace.mockRestore();
+    jest.useFakeTimers();
+    try {
+      const [first, second] = setClients(2);
+      const rateLimit = Object.assign(new AxiosError('Rate limited'), {
+        response: { status: 429, headers: {}, data: { retry_after: 30 } },
+      });
+      (service as any).handleRateLimit(rateLimit);
+      const request = (service as any).waitForRequestSlot(first);
+      let released = false;
+      request.then(() => { released = true; });
+
+      await jest.advanceTimersByTimeAsync(5 * 60_000 - 1);
+      expect(released).toBe(false);
+      await jest.advanceTimersByTimeAsync(1);
+      await request;
+      expect(released).toBe(true);
+
+      const next = (service as any).waitForRequestSlot(second);
+      let nextReleased = false;
+      next.then(() => { nextReleased = true; });
+      await jest.advanceTimersByTimeAsync(1499);
+      expect(nextReleased).toBe(false);
+      await jest.advanceTimersByTimeAsync(1);
+      await next;
+      expect(nextReleased).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('extracts the beatmapset ID from the beatmap, not the match game', () => {

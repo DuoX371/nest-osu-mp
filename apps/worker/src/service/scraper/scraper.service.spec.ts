@@ -26,7 +26,6 @@ describe('ScraperService discovery cursor', () => {
     latestMatchId = jest.fn().mockResolvedValue(160);
     service = new ScraperService({ getLatestMatchId: latestMatchId } as any, prisma as any, {} as any);
     scrapeMatch = jest.spyOn(service, 'scrapeMatch');
-    jest.spyOn(service as any, 'waitBetweenMatches').mockResolvedValue(undefined);
   });
 
   function missingMatch(): AxiosError {

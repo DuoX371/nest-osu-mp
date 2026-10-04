@@ -11,6 +11,8 @@ interface OsuClient {
     token: string | null;
     tokenExpiresAt: Date | null;
     nextRequestAt: number;
+    nextTokenAttemptAt: number;
+    tokenRequest: Promise<void> | null;
 }
 
 @Injectable()
@@ -56,20 +58,21 @@ export class OsuService implements OnModuleInit {
                 token: null,
                 tokenExpiresAt: null,
                 nextRequestAt: 0,
+                nextTokenAttemptAt: 0,
+                tokenRequest: null,
             }));
 
         const results = await Promise.allSettled(this.clients.map(client => this.getClientToken(client)));
 
-        this.clients = this.clients.filter((c, i) => {
+        this.clients.forEach((c, i) => {
             const result = results[i];
             if (result.status === 'rejected') {
                 this.logger.warn(
                     `Failed to get token for client ${c.clientId}: ${result.reason}`
                 );
-                return false;
+                c.nextTokenAttemptAt = Math.max(this.cooldownUntil, Date.now() + 5 * 60_000);
             }
-            return true;
-        })
+        });
 
         if (this.clients.length === 0) {
             this.logger.warn('No osu! clients configured');
@@ -77,7 +80,7 @@ export class OsuService implements OnModuleInit {
         }
 
         this.logger.log(
-            `Token pool ready — ${this.clients.length}/${config.length} clients valid`,
+            `Token pool ready — ${this.getActiveClientCount()}/${this.clients.length} clients valid`,
         );
     }
 
@@ -170,13 +173,27 @@ export class OsuService implements OnModuleInit {
         if (!this.clients.length) {
             await this.onModuleInit();
         }
-        if (!this.clients.length) {
-            throw new Error('No osu! API clients are available');
+        for (let tried = 0; tried < this.clients.length; tried++) {
+            const client = this.clients[this.currentIndex];
+            this.currentIndex = (this.currentIndex + 1) % this.clients.length;
+            if (Date.now() < client.nextTokenAttemptAt) continue;
+
+            try {
+                await this.ensureToken(client);
+                return client;
+            } catch (error) {
+                client.nextTokenAttemptAt = Math.max(this.cooldownUntil, Date.now() + 5 * 60_000);
+                const message = error instanceof Error ? error.message : String(error);
+                this.logger.warn(`Client ${client.clientId} unavailable; will retry later: ${message}`);
+                if (isAxiosError(error) && error.response?.status === 429) throw error;
+            }
         }
-        const client = this.clients[this.currentIndex];
-        this.currentIndex = (this.currentIndex + 1) % this.clients.length;
-        await this.ensureToken(client);
-        return client;
+        throw new Error('No osu! API clients are available');
+    }
+
+    private getActiveClientCount(): number {
+        const now = Date.now();
+        return this.clients.filter(client => client.token && client.tokenExpiresAt && client.tokenExpiresAt.getTime() > now).length;
     }
 
     private async ensureToken(client: OsuClient) {
@@ -185,7 +202,18 @@ export class OsuService implements OnModuleInit {
         }
     }
 
-    private async getClientToken(client: OsuClient) {
+    private getClientToken(client: OsuClient): Promise<void> {
+        if (client.tokenRequest) return client.tokenRequest;
+        const request = this.fetchClientToken(client);
+        client.tokenRequest = request;
+        request.then(
+            () => { client.tokenRequest = null; },
+            () => { client.tokenRequest = null; },
+        );
+        return request;
+    }
+
+    private async fetchClientToken(client: OsuClient): Promise<void> {
         this.logger.log(`Getting osu! API token for client ${client.clientId}`);
 
         await this.waitForRequestSlot(client);
@@ -206,6 +234,7 @@ export class OsuService implements OnModuleInit {
 
         client.token = data.access_token;
         client.tokenExpiresAt = new Date(Date.now() + data.expires_in * 1000);
+        client.nextTokenAttemptAt = 0;
     }
 
     private async getFromOsu<T>(path: string, client: OsuClient, params?: Record<string, unknown>): Promise<T> {
@@ -225,7 +254,7 @@ export class OsuService implements OnModuleInit {
     private async waitForRequestSlot(client: OsuClient): Promise<void> {
         const turn = this.requestQueue.then(async () => {
             // Each client gets 40 requests/minute; spread their starts across one queue.
-            const activeClients = Math.max(1, this.clients.length);
+            const activeClients = Math.max(1, this.getActiveClientCount());
             const sharedInterval = this.sharedLimitAfterRateLimit ? 1500 : 1500 / activeClients;
             while (true) {
                 const delay = Math.max(this.nextRequestAt, client.nextRequestAt, this.cooldownUntil) - Date.now();
@@ -244,7 +273,7 @@ export class OsuService implements OnModuleInit {
         if (!isAxiosError(error) || error.response?.status !== 429) return;
 
         const now = Date.now();
-        this.consecutiveRateLimits = now - this.lastRateLimitAt < 30 * 60_000
+        this.consecutiveRateLimits = now - this.lastRateLimitAt < 2 * 60 * 60_000
             ? Math.min(this.consecutiveRateLimits + 1, 5)
             : 1;
         this.lastRateLimitAt = now;

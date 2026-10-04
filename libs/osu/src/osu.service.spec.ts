@@ -32,7 +32,14 @@ describe('OsuService token recovery', () => {
   }
 
   function setClients(count: number) {
-    const clients = Array.from({ length: count }, (_, i) => ({ clientId: i + 1, nextRequestAt: 0 }));
+    const clients = Array.from({ length: count }, (_, i) => ({
+      clientId: i + 1,
+      token: `token-${i + 1}`,
+      tokenExpiresAt: new Date(Date.now() + 3600_000),
+      nextRequestAt: 0,
+      nextTokenAttemptAt: 0,
+      tokenRequest: null,
+    }));
     (service as any).clients = clients;
     return clients;
   }
@@ -72,6 +79,57 @@ describe('OsuService token recovery', () => {
     expect(get).toHaveBeenCalledWith('https://osu.ppy.sh/api/v2/matches', expect.objectContaining({
       params: { limit: 1, sort: 'id_desc' },
     }));
+  });
+
+  it('uses one active client after a startup 429 and retries the other later', async () => {
+    const rateLimit = Object.assign(new AxiosError('Rate limited'), {
+      response: { status: 429, headers: {}, data: { retry_after: 30 } },
+    });
+    const tokenResponse = (token: string) => of({ data: { access_token: token, expires_in: 3600 } });
+    const tokenPost = jest.fn()
+      .mockReturnValueOnce(throwError(() => rateLimit))
+      .mockReturnValueOnce(tokenResponse('second-token'))
+      .mockReturnValueOnce(tokenResponse('recovered-token'));
+    const config = {
+      getOrThrow: (key: string) => key === 'OSU_CLIENT_ID' ? 1 : 'secret',
+      get: (key: string) => key === 'OSU_CLIENT_ID_2' ? 2 : 'second-secret',
+    };
+    const recovering = new OsuService(
+      { get, post: tokenPost } as unknown as HttpService,
+      config as unknown as ConfigService,
+    );
+    jest.spyOn(recovering as any, 'waitForRequestSlot').mockResolvedValue(undefined);
+
+    await recovering.onModuleInit();
+    expect((recovering as any).clients).toHaveLength(2);
+    expect((recovering as any).getActiveClientCount()).toBe(1);
+    await expect((recovering as any).getNextClient()).resolves.toMatchObject({ clientId: 2 });
+
+    (recovering as any).clients[0].nextTokenAttemptAt = 0;
+    await expect((recovering as any).getNextClient()).resolves.toMatchObject({
+      clientId: 1,
+      token: 'recovered-token',
+    });
+    expect((recovering as any).getActiveClientCount()).toBe(2);
+  });
+
+  it('coalesces simultaneous token requests for the same client', async () => {
+    const tokenPost = jest.fn().mockReturnValue(of({
+      data: { access_token: 'token', expires_in: 3600 },
+    }));
+    const single = new OsuService(
+      { get, post: tokenPost } as unknown as HttpService,
+      {} as ConfigService,
+    );
+    jest.spyOn(single as any, 'waitForRequestSlot').mockResolvedValue(undefined);
+    const client = { clientId: 1, clientSecret: 'secret', token: null, tokenExpiresAt: null,
+      nextRequestAt: 0, nextTokenAttemptAt: 0, tokenRequest: null };
+
+    await Promise.all([
+      (single as any).getClientToken(client),
+      (single as any).getClientToken(client),
+    ]);
+    expect(tokenPost).toHaveBeenCalledTimes(1);
   });
 
   it('does not refresh the token for a rate limit response', async () => {
@@ -141,6 +199,21 @@ describe('OsuService token recovery', () => {
     expect((service as any).cooldownUntil - Date.now()).toBeGreaterThanOrEqual(5 * 60_000 - 1000);
     (service as any).handleRateLimit(rateLimit);
     expect((service as any).cooldownUntil - Date.now()).toBeGreaterThanOrEqual(10 * 60_000 - 1000);
+  });
+
+  it('continues escalating after a 40-minute cooldown and resets after two quiet hours', () => {
+    const rateLimit = Object.assign(new AxiosError('Rate limited'), {
+      response: { status: 429, headers: {}, data: { retry_after: 30 } },
+    });
+    (service as any).consecutiveRateLimits = 4;
+    (service as any).lastRateLimitAt = Date.now() - 40 * 60_000;
+    (service as any).handleRateLimit(rateLimit);
+    expect((service as any).consecutiveRateLimits).toBe(5);
+    expect((service as any).cooldownUntil - Date.now()).toBeGreaterThanOrEqual(60 * 60_000 - 1000);
+
+    (service as any).lastRateLimitAt = Date.now() - 2 * 60 * 60_000 - 1;
+    (service as any).handleRateLimit(rateLimit);
+    expect((service as any).consecutiveRateLimits).toBe(1);
   });
 
   it('holds subsequent requests until the 429 cooldown ends', async () => {

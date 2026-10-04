@@ -36,16 +36,34 @@ describe('ScraperService discovery cursor', () => {
   }
 
   it('persists each missing ID and resumes at the next ID on the following run', async () => {
+    latestMatchId.mockResolvedValue(105);
     scrapeMatch.mockImplementation(async () => { throw missingMatch(); });
 
     await service.fetchNewMatches();
-    expect(scrapeMatch.mock.calls.map(([id]) => id)).toEqual(Array.from({ length: 30 }, (_, i) => 100 + i));
-    expect(nextLobbyId).toBe(130);
+    expect(scrapeMatch.mock.calls.map(([id]) => id)).toEqual([100, 101, 102, 103, 104, 105]);
+    expect(nextLobbyId).toBe(106);
+
+    scrapeMatch.mockClear();
+    latestMatchId.mockResolvedValue(108);
+    await service.fetchNewMatches();
+    expect(scrapeMatch.mock.calls.map(([id]) => id)).toEqual([106, 107, 108]);
+    expect(nextLobbyId).toBe(109);
+  });
+
+  it('limits each catch-up run to 300 sequential IDs', async () => {
+    latestMatchId.mockResolvedValue(1000);
+    scrapeMatch.mockResolvedValue(true);
+
+    await service.fetchNewMatches();
+    expect(scrapeMatch).toHaveBeenCalledTimes(300);
+    expect(scrapeMatch).toHaveBeenNthCalledWith(1, 100);
+    expect(scrapeMatch).toHaveBeenNthCalledWith(300, 399);
+    expect(nextLobbyId).toBe(400);
 
     scrapeMatch.mockClear();
     await service.fetchNewMatches();
-    expect(scrapeMatch.mock.calls.map(([id]) => id)).toEqual(Array.from({ length: 30 }, (_, i) => 130 + i));
-    expect(nextLobbyId).toBe(160);
+    expect(scrapeMatch).toHaveBeenNthCalledWith(1, 400);
+    expect(nextLobbyId).toBe(700);
   });
 
   it.each([

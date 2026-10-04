@@ -36,7 +36,7 @@ export class ScraperService {
             });
             let currentId = cursor.nextLobbyId;
             const latestId = await this.osuService.getLatestMatchId();
-            const MAX_IDS_PER_RUN = 30;
+            const MAX_IDS_PER_RUN = 300;
             const lastId = Math.min(latestId, currentId + MAX_IDS_PER_RUN - 1);
             this.logger.log(`New scrape from lobbyId: ${currentId} through ${lastId} (latest: ${latestId})`);
 
@@ -71,7 +71,7 @@ export class ScraperService {
     }
 
     private async waitBetweenMatches() {
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise(resolve => setTimeout(resolve, 200));
     }
 
     @Cron(CronExpression.EVERY_5_MINUTES)

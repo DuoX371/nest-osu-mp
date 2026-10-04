@@ -73,7 +73,7 @@ export class OsuService implements OnModuleInit {
         );
     }
 
-    async getMatch(id: number): Promise<OsuMatch> {
+    async getMatch(id: number): Promise<OsuMatch | null> {
         const client = await this.getNextClient();
         const fetchMatch = async () => {
             const { data } = await firstValueFrom(this.http.get<OsuMatch>(`${this.baseUrl}/matches/${id}`, {
@@ -93,8 +93,46 @@ export class OsuService implements OnModuleInit {
 
             this.logger.warn(`osu! rejected the token for client ${client.clientId}; refreshing it`);
             await this.getClientToken(client);
-            return fetchMatch();
+            try {
+                return await fetchMatch();
+            } catch (retryError) {
+                if (!isAxiosError(retryError) || retryError.response?.status !== 401) {
+                    throw retryError;
+                }
+
+                // Confirm this token works before treating a 401 as specific to this match.
+                await this.getLatestMatchIdForClient(client);
+                this.logger.warn(`Match ${id} is inaccessible with a valid osu! token; skipping it`);
+                return null;
+            }
         }
+    }
+
+    async getLatestMatchId(): Promise<number> {
+        const client = await this.getNextClient();
+        try {
+            return await this.getLatestMatchIdForClient(client);
+        } catch (error) {
+            if (!isAxiosError(error) || error.response?.status !== 401) {
+                throw error;
+            }
+            await this.getClientToken(client);
+            return this.getLatestMatchIdForClient(client);
+        }
+    }
+
+    private async getLatestMatchIdForClient(client: OsuClient): Promise<number> {
+        const { data } = await firstValueFrom(this.http.get<{ matches: { id: number }[] }>(
+            `${this.baseUrl}/matches`, {
+                params: { limit: 1, sort: 'id_desc' },
+                headers: { Authorization: `Bearer ${client.token}` },
+            },
+        ));
+        const id = data.matches?.[0]?.id;
+        if (!Number.isSafeInteger(id)) {
+            throw new Error('osu! returned no latest match ID');
+        }
+        return id;
     }
 
     /** 
@@ -124,7 +162,7 @@ export class OsuService implements OnModuleInit {
             .filter(e => e.detail.type === 'other' && e.game)
             .map(e => ({
                 beatmapId: e.game!.beatmap_id,
-                beatmapsetId: e.game!.beatmap.beatmapset_id
+                beatmapsetId: e.game!.beatmap?.beatmapset_id ?? 0
             }));
     }
 

@@ -44,8 +44,26 @@ describe('OsuService token recovery', () => {
     get.mockReturnValue(throwError(() => unauthorized()));
 
     await expect(service.getMatch(123)).rejects.toMatchObject({ response: { status: 401 } });
-    expect(get).toHaveBeenCalledTimes(2);
+    expect(get).toHaveBeenCalledTimes(3);
     expect(post).toHaveBeenCalledTimes(2);
+  });
+
+  it('skips a match only when the refreshed token can fetch the match list', async () => {
+    get.mockReturnValueOnce(throwError(() => unauthorized()))
+      .mockReturnValueOnce(throwError(() => unauthorized()))
+      .mockReturnValueOnce(of({ data: { matches: [{ id: 200 }] } }));
+
+    await expect(service.getMatch(123)).resolves.toBeNull();
+    expect(get.mock.calls[2][0]).toBe('https://osu.ppy.sh/api/v2/matches');
+    expect(get.mock.calls[2][1].headers.Authorization).toBe('Bearer refreshed-token');
+  });
+
+  it('gets the latest match ID from the public match list', async () => {
+    get.mockReturnValue(of({ data: { matches: [{ id: 200 }] } }));
+    await expect(service.getLatestMatchId()).resolves.toBe(200);
+    expect(get).toHaveBeenCalledWith('https://osu.ppy.sh/api/v2/matches', expect.objectContaining({
+      params: { limit: 1, sort: 'id_desc' },
+    }));
   });
 
   it('does not refresh the token for a rate limit response', async () => {
@@ -73,6 +91,19 @@ describe('OsuService token recovery', () => {
 
     expect(service.extractMaps(matchWithGame)).toEqual([
       { beatmapId: 200, beatmapsetId: 300 },
+    ]);
+  });
+
+  it('keeps the beatmap ID when osu! omits the beatmap object', () => {
+    const matchWithMissingBeatmap = {
+      events: [{
+        detail: { type: OsuMatchEventTypes.Other },
+        game: { id: 900, beatmap_id: 200 },
+      }],
+    } as OsuMatch;
+
+    expect(service.extractMaps(matchWithMissingBeatmap)).toEqual([
+      { beatmapId: 200, beatmapsetId: 0 },
     ]);
   });
 });

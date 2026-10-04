@@ -35,14 +35,14 @@ export class ScraperService {
                 where: { id: 1 },
             });
             let currentId = cursor.nextLobbyId;
-            let consecutiveMissing = 0;
-            const MAX_CONSECUTIVE_MISSING = 3;
-            this.logger.log(`New scrape from lobbyId: ${currentId}`);
+            const latestId = await this.osuService.getLatestMatchId();
+            const MAX_IDS_PER_RUN = 30;
+            const lastId = Math.min(latestId, currentId + MAX_IDS_PER_RUN - 1);
+            this.logger.log(`New scrape from lobbyId: ${currentId} through ${lastId} (latest: ${latestId})`);
 
-            while (consecutiveMissing < MAX_CONSECUTIVE_MISSING) {
+            while (currentId <= lastId) {
                 try {
                     await this.scrapeMatch(currentId);
-                    consecutiveMissing = 0;
                 } catch (error) {
                     if (!isAxiosError(error) || error.response?.status !== 404) {
                         const message = error instanceof Error ? error.message : String(error);
@@ -50,8 +50,7 @@ export class ScraperService {
                         break;
                     }
 
-                    consecutiveMissing++;
-                    this.logger.log(`No match at lobbyId ${currentId} (${consecutiveMissing}/${MAX_CONSECUTIVE_MISSING})`);
+                    this.logger.log(`No match at lobbyId ${currentId}`);
                 }
 
                 await this.prisma.scrapeCursor.update({
@@ -59,6 +58,9 @@ export class ScraperService {
                     data: { nextLobbyId: currentId + 1 },
                 });
                 currentId++;
+                if (currentId <= lastId) {
+                    await this.waitBetweenMatches();
+                }
             }
             this.logger.log(`Scrape completed. Current Lobby: ${currentId}`);
         } catch (error) {
@@ -66,6 +68,10 @@ export class ScraperService {
         } finally {
             this.isRunning = false;
         }
+    }
+
+    private async waitBetweenMatches() {
+        await new Promise(resolve => setTimeout(resolve, 1000));
     }
 
     @Cron(CronExpression.EVERY_5_MINUTES)
@@ -113,6 +119,10 @@ export class ScraperService {
         this.logger.log(`Scraping data for match ${matchId}...`);
 
         const match = await this.osuService.getMatch(matchId);
+        if (!match) {
+            this.logger.warn(`Skipping inaccessible match ${matchId}`);
+            return false;
+        }
         const formatted = this.osuService.extractDetails(match);
 
         await this.saveMatchData(formatted);

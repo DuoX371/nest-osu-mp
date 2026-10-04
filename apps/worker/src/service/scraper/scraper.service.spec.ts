@@ -10,6 +10,7 @@ describe('ScraperService discovery cursor', () => {
   let service: ScraperService;
   let scrapeMatch: jest.SpyInstance;
   let updateCursor: jest.Mock;
+  let latestMatchId: jest.Mock;
 
   beforeEach(() => {
     nextLobbyId = 100;
@@ -22,8 +23,10 @@ describe('ScraperService discovery cursor', () => {
         update: updateCursor,
       },
     };
-    service = new ScraperService({} as any, prisma as any, {} as any);
+    latestMatchId = jest.fn().mockResolvedValue(160);
+    service = new ScraperService({ getLatestMatchId: latestMatchId } as any, prisma as any, {} as any);
     scrapeMatch = jest.spyOn(service, 'scrapeMatch');
+    jest.spyOn(service as any, 'waitBetweenMatches').mockResolvedValue(undefined);
   });
 
   function missingMatch(): AxiosError {
@@ -36,13 +39,13 @@ describe('ScraperService discovery cursor', () => {
     scrapeMatch.mockImplementation(async () => { throw missingMatch(); });
 
     await service.fetchNewMatches();
-    expect(scrapeMatch.mock.calls.map(([id]) => id)).toEqual([100, 101, 102]);
-    expect(nextLobbyId).toBe(103);
+    expect(scrapeMatch.mock.calls.map(([id]) => id)).toEqual(Array.from({ length: 30 }, (_, i) => 100 + i));
+    expect(nextLobbyId).toBe(130);
 
     scrapeMatch.mockClear();
     await service.fetchNewMatches();
-    expect(scrapeMatch.mock.calls.map(([id]) => id)).toEqual([103, 104, 105]);
-    expect(nextLobbyId).toBe(106);
+    expect(scrapeMatch.mock.calls.map(([id]) => id)).toEqual(Array.from({ length: 30 }, (_, i) => 130 + i));
+    expect(nextLobbyId).toBe(160);
   });
 
   it.each([
@@ -60,15 +63,30 @@ describe('ScraperService discovery cursor', () => {
     expect(scrapeMatch).toHaveBeenLastCalledWith(100);
   });
 
-  it('resets the consecutive missing count after a successful match', async () => {
+  it('stops at the latest match and does not skip it when it fails temporarily', async () => {
+    latestMatchId.mockResolvedValue(102);
     scrapeMatch.mockImplementation(async (id: number) => {
-      if (id === 101) return true;
-      throw missingMatch();
+      if (id === 102) throw new Error('Temporary failure');
+      return true;
     });
 
     await service.fetchNewMatches();
-    expect(scrapeMatch.mock.calls.map(([id]) => id)).toEqual([100, 101, 102, 103, 104]);
-    expect(nextLobbyId).toBe(105);
+    expect(scrapeMatch.mock.calls.map(([id]) => id)).toEqual([100, 101, 102]);
+    expect(nextLobbyId).toBe(102);
+  });
+
+  it('does not advance if latest match lookup fails', async () => {
+    latestMatchId.mockRejectedValue(new Error('API unavailable'));
+    await service.fetchNewMatches();
+    expect(scrapeMatch).not.toHaveBeenCalled();
+    expect(updateCursor).not.toHaveBeenCalled();
+  });
+
+  it('advances past a verified inaccessible match', async () => {
+    latestMatchId.mockResolvedValue(100);
+    scrapeMatch.mockResolvedValue(false);
+    await service.fetchNewMatches();
+    expect(nextLobbyId).toBe(101);
   });
 
   it('sets the beatmapset ID only when creating a beatmap row', async () => {
@@ -97,5 +115,16 @@ describe('ScraperService discovery cursor', () => {
       create: { beatmapId: 200, beatmapSetId: 300, lobbyId: 100 },
       update: {},
     }));
+  });
+
+  it('does not save or publish an inaccessible match', async () => {
+    const osu = { getMatch: jest.fn().mockResolvedValue(null), extractDetails: jest.fn() };
+    const prisma = { $transaction: jest.fn() };
+    const pubSub = { publish: jest.fn() };
+    const scraper = new ScraperService(osu as any, prisma as any, pubSub as any);
+    await expect(scraper.scrapeMatch(100)).resolves.toBe(false);
+    expect(osu.extractDetails).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(pubSub.publish).not.toHaveBeenCalled();
   });
 });

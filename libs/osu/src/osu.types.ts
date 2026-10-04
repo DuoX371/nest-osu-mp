@@ -39,10 +39,10 @@ export interface OsuMatchEvent {
         scoring_type: string;
         team_type: string;
         mods: string[];
-        beatmap: {
+        beatmap?: {
             id: number;
             beatmapset_id: number;
-        }
+        } | null;
         scores: {}[];
     }
 }

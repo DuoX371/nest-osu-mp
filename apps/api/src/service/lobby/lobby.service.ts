@@ -13,7 +13,7 @@ export class LobbyService {
 
     async findAll(filter?: LobbyFilterInput, pagination?: PaginationInput) {
         if (isEmpty(filter)) {
-           return { lobbies: [], total: 0 }
+            return { lobbies: [], total: 0 }
         };
 
         const conditions: LobbyWhereInput[] = [];
@@ -47,10 +47,10 @@ export class LobbyService {
             })
         }
 
-        if (filter.beatmapId) {
+        if (filter.beatmapIds?.length) {
             conditions.push({
                 beatmaps: {
-                    some: { beatmapId: filter.beatmapId }
+                    some: { beatmapId: { in: filter.beatmapIds } }
                 }
             })
         }

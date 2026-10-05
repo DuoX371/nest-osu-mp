@@ -11,6 +11,6 @@ export class LobbyFilterInput {
     @Field(() => Int, { nullable: true })
     playerId?: number;       // search by player osu id
 
-    @Field(() => Int, { nullable: true })
-    beatmapId?: number;
+    @Field(() => [Int], { nullable: true })
+    beatmapIds?: number[];
 }

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { LobbyFilterInput } from '../../schema';
 import { LobbyWhereInput } from 'generated/prisma/internal/prismaNamespaceBrowser';
 import { PrismaService } from '@prisma-client/prisma';
@@ -48,11 +48,19 @@ export class LobbyService {
         }
 
         if (filter.beatmapIds?.length) {
-            conditions.push({
-                beatmaps: {
-                    some: { beatmapId: { in: filter.beatmapIds } }
-                }
-            })
+            const beatmapIds = [...new Set(filter.beatmapIds)];
+            if (beatmapIds.length > 20) {
+                throw new BadRequestException('Search supports at most 20 distinct beatmap IDs');
+            }
+            for (const beatmapId of beatmapIds) {
+                conditions.push({
+                    beatmaps: { some: { beatmapId } }
+                });
+            }
+        }
+
+        if (conditions.length === 0) {
+            return { lobbies: [], total: 0 };
         }
 
         const [lobbies, total] = await this.prisma.$transaction([
@@ -60,7 +68,7 @@ export class LobbyService {
                 where: { AND: conditions },
                 include: {
                     players: { include: { player: true } },
-                    beatmaps: { include: { lobby: true } }
+                    beatmaps: true
                 },
                 skip: pagination?.skip ?? 0,
                 take: Math.min(pagination?.limit ?? 20, 100),

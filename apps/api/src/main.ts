@@ -11,7 +11,7 @@ async function bootstrap() {
   app.useGlobalInterceptors(new LoggingInterceptor());
 
   app.enableCors({
-    origin: ['https://osump.chooh.moe', "http://localhost:3001"]
+    origin: ['https://osump.chooh.moe', "http://localhost:3001", "https://osump.reisal.in"]
   });
 
   await app.listen(process.env.PORT ?? 3000);
